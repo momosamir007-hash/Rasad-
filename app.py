@@ -23,35 +23,24 @@ def initialize_file():
         df.to_csv(ATTENDANCE_FILE, index=False, encoding='utf-8-sig')
 
 def load_students():
-    """ ✅ الإصلاح الثاني: تحميل بيانات الطلاب بشكل صحيح
-        يقرأ أي أعمدة موجودة في الملف """
     if os.path.exists(STUDENTS_FILE):
         try:
             df = pd.read_excel(STUDENTS_FILE)
-            # ── تنظيف أسماء الأعمدة ──────────────────────
             df.columns = df.columns.str.strip().str.lower()
-            st.sidebar.caption(f"📋 أعمدة الملف: {list(df.columns)}")
-
-            # ── البحث عن عمود الباركود ───────────────────
             barcode_col = None
             for col in ['barcode', 'id', 'رقم', 'كود', 'code', 'student_id']:
                 if col in df.columns:
                     barcode_col = col
                     break
-
-            # ── البحث عن عمود الاسم ──────────────────────
             name_col = None
             for col in ['name', 'اسم', 'الاسم', 'student_name', 'اسم الطالب']:
                 if col in df.columns:
                     name_col = col
                     break
-
-            # ── إذا لم يجد الأعمدة استخدم أول عمودين ────
             if barcode_col is None and len(df.columns) >= 1:
                 barcode_col = df.columns[0]
             if name_col is None and len(df.columns) >= 2:
                 name_col = df.columns[1]
-
             if barcode_col and name_col:
                 students = dict(
                     zip(
@@ -59,7 +48,7 @@ def load_students():
                         df[name_col].astype(str).str.strip()
                     )
                 )
-                return students, df  # ← إرجاع القاموس والـ DataFrame
+                return students, df
         except Exception as e:
             st.sidebar.error(f"❌ خطأ في قراءة الملف: {e}")
     return {}, pd.DataFrame()
@@ -88,9 +77,9 @@ def mark_attendance(identifier, students_dict):
     try:
         dt_string = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         new_row = pd.DataFrame({
-            'الاسم/الرقم': [name],
+            'الاسم/الرقم' : [name],
             'التاريخ والوقت': [dt_string],
-            'الحالة': ['حاضر']
+            'الحالة' : ['حاضر']
         })
         new_row.to_csv(
             ATTENDANCE_FILE,
@@ -136,168 +125,129 @@ def draw_on_image(image):
 # 🚀 واجهة Streamlit
 # ============================================================
 def main():
-    # ✅ الإصلاح الأول: initial_sidebar_state="expanded"
+    # ══════════════════════════════════════════════════════
+    # ✅ الإعداد الأساسي للصفحة
+    # ══════════════════════════════════════════════════════
     st.set_page_config(
-        page_title="نظام الحضور",
+        page_title="نظام رَصْد للحضور",
         page_icon="🎓",
         layout="wide",
-        initial_sidebar_state="expanded"  # ← يفتح الشريط دائماً
+        initial_sidebar_state="expanded"
     )
 
-    # ✅ الإصلاح الأول: CSS لنقل الشريط لليسار وتثبيته
+    # ══════════════════════════════════════════════════════
+    # ✅ CSS آمن لا يكسر تخطيط Streamlit
+    # ══════════════════════════════════════════════════════
     st.markdown("""
     <style>
-    /* ── اتجاه الصفحة ── */
-    body, .main, [data-testid="stAppViewContainer"] {
-        direction: rtl;
-        text-align: right;
-    }
-    /* ✅ إصلاح الشريط الجانبي - نقله لليسار */
-    [data-testid="stSidebar"] {
-        right: auto !important;
-        left: 0 !important;
-        direction: rtl;
-    }
-    /* ✅ إصلاح زر فتح/إغلاق الشريط */
-    [data-testid="collapsedControl"] {
-        right: auto !important;
-        left: 0 !important;
-    }
-    /* ── محتوى الشريط الجانبي ── */
-    [data-testid="stSidebar"] > div:first-child {
-        background: linear-gradient(180deg, #1a3c6e 0%, #0d2444 100%);
-        padding-top: 2rem;
-    }
-    /* ── نصوص الشريط الجانبي ── */
-    [data-testid="stSidebar"] .stMarkdown,
-    [data-testid="stSidebar"] label,
-    [data-testid="stSidebar"] p,
-    [data-testid="stSidebar"] h1,
-    [data-testid="stSidebar"] h2,
-    [data-testid="stSidebar"] h3 {
+    /* ── المحتوى الرئيسي RTL ── */
+    .block-container { direction: rtl; }
+    /* ── النصوص فقط بدون المساس بـ div/span ── */
+    h1, h2, h3, h4, h5, h6, p, label, .stMarkdown { text-align: right !important; }
+    /* ── الجداول ── */
+    [data-testid="stDataFrame"] { direction: rtl !important; }
+    /* ── مدخلات النصوص ── */
+    input { direction: rtl !important; text-align: right !important; }
+    /* ── الشريط الجانبي ── */
+    [data-testid="stSidebar"] { direction: rtl; min-width: 280px; max-width: 320px; }
+    [data-testid="stSidebar"] .block-container { padding-top: 1rem; }
+    /* ── ألوان الشريط الجانبي ── */
+    [data-testid="stSidebar"] { background: linear-gradient(180deg, #1a3c6e 0%, #0d2444 100%); }
+    [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3,
+    [data-testid="stSidebar"] p, [data-testid="stSidebar"] label, [data-testid="stSidebar"] .stMarkdown {
         color: white !important;
-        text-align: right !important;
-    }
-    /* ── العنوان الرئيسي ── */
-    h1 {
-        text-align: center;
-        color: #1a3c6e;
-    }
-    h2, h3 {
-        text-align: right;
     }
     /* ── بطاقات المعلومات ── */
     .info-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 1.5rem;
-        border-radius: 12px;
+        background: linear-gradient(135deg, #1a3c6e, #2563eb);
+        padding: 1rem;
+        border-radius: 10px;
         color: white;
         text-align: center;
-        margin: 0.5rem 0;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        margin: 0.4rem 0;
     }
-    /* ── تنسيق الجداول ── */
-    .dataframe {
-        direction: rtl;
+    /* ── بطاقة الحاضر ── */
+    .present-card {
+        background: #e8f5e9;
+        padding: 0.5rem 1rem;
+        border-radius: 8px;
+        margin: 0.3rem 0;
+        border-right: 4px solid #4caf50;
+        text-align: right;
+    }
+    /* ── بطاقة الغائب ── */
+    .absent-card {
+        background: #ffebee;
+        padding: 0.5rem 1rem;
+        border-radius: 8px;
+        margin: 0.3rem 0;
+        border-right: 4px solid #f44336;
         text-align: right;
     }
     /* ── الأزرار ── */
-    .stButton button {
-        width: 100%;
-        border-radius: 8px;
-        background: #1a3c6e;
-        color: white;
-        border: none;
-        padding: 0.5rem;
-    }
-    .stButton button:hover {
-        background: #2563eb;
-        transform: translateY(-1px);
-    }
-    /* ── التبويبات ── */
-    .stTabs [data-baseweb="tab"] {
-        font-size: 1rem;
-        padding: 0.5rem 1.5rem;
-    }
+    .stButton > button { border-radius: 8px; width: 100%; }
     </style>
     """, unsafe_allow_html=True)
 
-    # ── تهيئة حالة الجلسة ─────────────────────────────
+    # ══════════════════════════════════════════════════════
+    # تهيئة حالة الجلسة والملفات
+    # ══════════════════════════════════════════════════════
     if 'scanned_session' not in st.session_state:
         st.session_state.scanned_session = set()
-
-    # ── تهيئة الملفات ─────────────────────────────────
     initialize_file()
-    # ✅ الإصلاح الثاني: تحميل بيانات الطلاب مع DataFrame
     students_dict, students_df = load_students()
 
-    # ── العنوان ───────────────────────────────────────
-    st.markdown("""
-    <h1>🎓 نظام تسجيل الحضور بالباركود</h1>
-    <p style='text-align:center; color:#666;'> مدرسة النجاح - نظام الحضور الذكي </p>
-    """, unsafe_allow_html=True)
-    st.markdown("---")
-
-    # ============================================================
-    # ✅ الشريط الجانبي المُصلح - يفتح على اليسار
-    # ============================================================
+    # ══════════════════════════════════════════════════════
+    # ✅ الشريط الجانبي
+    # ══════════════════════════════════════════════════════
     with st.sidebar:
-        # ── شعار وعنوان ───────────────────────────────
-        st.markdown("""
-        <div style='text-align:center; padding:1rem 0;'>
-            <h1 style='color:white; font-size:2rem;'>🎓</h1>
-            <h3 style='color:white;'>نظام الحضور</h3>
-        </div>
-        """, unsafe_allow_html=True)
+        # عنوان الشريط
+        st.markdown("## 🎓 نظام رَصْد")
         st.markdown("---")
 
-        # ── إحصائيات سريعة ────────────────────────────
+        # إحصائيات سريعة
         today_count = len(get_attended_today())
         session_count = len(st.session_state.scanned_session)
-        st.markdown(f"""
-        <div class='info-card'>
-            <h4 style='margin:0; color:white;'>📊 إحصائيات سريعة</h4>
-            <hr style='border-color:rgba(255,255,255,0.3);'>
-            <p style='margin:0.3rem 0; color:white;'> 👥 الجلسة الحالية: <b>{session_count}</b> </p>
-            <p style='margin:0.3rem 0; color:white;'> 📅 حضور اليوم: <b>{today_count}</b> </p>
-            <p style='margin:0.3rem 0; color:white;'> 🎓 إجمالي الطلاب: <b>{len(students_dict)}</b> </p>
-        </div>
-        """, unsafe_allow_html=True)
+        total_count = len(students_dict)
+        st.markdown("### 📊 إحصائيات")
+        col_a, col_b = st.columns(2)
+        with col_a:
+            st.metric("الجلسة", session_count)
+            st.metric("الطلاب", total_count)
+        with col_b:
+            st.metric("اليوم", today_count)
+            absent_count = total_count - today_count if total_count > 0 else 0
+            st.metric("الغائبون", absent_count)
         st.markdown("---")
 
-        # ✅ رفع ملف الطلاب مع معاينة
-        st.markdown("### 📤 رفع بيانات الطلاب")
-        st.caption("الأعمدة المطلوبة: barcode, name")
+        # رفع ملف الطلاب
+        st.markdown("### 📤 ملف الطلاب")
+        st.caption("أعمدة مطلوبة: barcode, name")
         uploaded_students = st.file_uploader(
-            "اختر ملف Excel:",
+            "اختر ملف Excel",
             type=['xlsx', 'xls'],
             key='students_upload'
         )
         if uploaded_students:
             with open(STUDENTS_FILE, 'wb') as f:
                 f.write(uploaded_students.getbuffer())
-            st.success("✅ تم رفع الملف بنجاح!")
+            st.success("✅ تم رفع الملف!")
             st.rerun()
 
-        # ✅ عرض حالة الملف
+        # حالة الملف
         if students_dict:
             st.success(f"✅ {len(students_dict)} طالب محمّل")
         else:
             st.error("❌ لا توجد بيانات طلاب")
-            st.info("""
-            **كيفية إعداد ملف Excel:**
-            - عمود `barcode` ← رقم الباركود
-            - عمود `name` ← اسم الطالب
-            """)
         st.markdown("---")
 
-        # ── أزرار التحكم ──────────────────────────────
+        # أزرار التحكم
         st.markdown("### ⚙️ التحكم")
-        if st.button("🔄 إعادة تعيين الجلسة", use_container_width=True):
+        if st.button("🔄 إعادة تعيين الجلسة"):
             st.session_state.scanned_session = set()
-            st.success("✅ تم إعادة التعيين")
+            st.success("✅ تم!")
             st.rerun()
-        if st.button("🗑️ مسح سجل اليوم", use_container_width=True):
+        if st.button("🗑️ مسح سجل اليوم"):
             if os.path.exists(ATTENDANCE_FILE):
                 today = datetime.now().strftime('%Y-%m-%d')
                 df_all = pd.read_csv(ATTENDANCE_FILE, encoding='utf-8-sig')
@@ -307,14 +257,20 @@ def main():
                 df_keep = df_all[df_all['date'] != today].drop(columns=['date'])
                 df_keep.to_csv(ATTENDANCE_FILE, index=False, encoding='utf-8-sig')
                 st.session_state.scanned_session = set()
-                st.success("✅ تم مسح سجل اليوم")
+                st.success("✅ تم المسح!")
                 st.rerun()
         st.markdown("---")
         st.caption(f"📅 {datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
-    # ============================================================
-    # 📑 التبويبات الرئيسية
-    # ============================================================
+    # ══════════════════════════════════════════════════════
+    # العنوان الرئيسي
+    # ══════════════════════════════════════════════════════
+    st.markdown("<h1>🎓 نظام رَصْد للحضور</h1>", unsafe_allow_html=True)
+    st.markdown("---")
+
+    # ══════════════════════════════════════════════════════
+    # التبويبات
+    # ══════════════════════════════════════════════════════
     tab1, tab2, tab3, tab4 = st.tabs([
         "📷 تسجيل الحضور",
         "👥 قائمة الطلاب",
@@ -322,17 +278,13 @@ def main():
         "📋 تقرير اليوم"
     ])
 
-    # ══════════════════════════════════════════════════════════
+    # ══════════════════════════════════════════════════════
     # TAB 1: تسجيل الحضور
-    # ══════════════════════════════════════════════════════════
+    # ══════════════════════════════════════════════════════
     with tab1:
         st.header("📷 تسجيل الحضور")
-        # تحذير إذا لم توجد بيانات طلاب
         if not students_dict:
-            st.warning("""
-            ⚠️ **لا توجد بيانات طلاب!**
-            يرجى رفع ملف Excel من الشريط الجانبي يحتوي على عمودي `barcode` و `name`
-            """)
+            st.warning("⚠️ يرجى رفع ملف الطلاب من الشريط الجانبي أولاً")
 
         method = st.radio(
             "اختر طريقة الإدخال:",
@@ -341,19 +293,22 @@ def main():
         )
         st.markdown("---")
 
-        # ── طريقة 1: رفع صورة ─────────────────────────
+        # ── رفع صورة ──────────────────────────────────
         if "رفع صورة" in method:
-            col1, col2 = st.columns([1, 1])
+            col1, col2 = st.columns(2)
             with col1:
                 uploaded_file = st.file_uploader(
-                    "ارفع صورة تحتوي على باركود أو QR كود",
+                    "ارفع صورة الباركود أو QR",
                     type=['jpg', 'jpeg', 'png', 'bmp'],
                     key='barcode_image'
                 )
                 if uploaded_file:
                     image = Image.open(uploaded_file)
-                    st.image(image, caption="الصورة المرفوعة", use_column_width=True)
-
+                    st.image(
+                        image,
+                        caption="الصورة المرفوعة",
+                        use_column_width=True
+                    )
             if uploaded_file:
                 barcodes = scan_barcodes(image)
                 with col2:
@@ -365,33 +320,30 @@ def main():
                                 data, students_dict
                             )
                             if success:
-                                st.success(f"""
-                                ✅ **تم تسجيل الحضور**
-                                - 👤 الاسم: **{name}**
-                                - 🔖 النوع: {btype}
-                                - 🔢 الكود: {data}
-                                - ⏰ {message}
-                                """)
+                                st.success(
+                                    f"✅ **{name}**\n"
+                                    f"- الكود: {data}\n"
+                                    f"- {message}"
+                                )
                                 st.balloons()
                             else:
-                                st.warning(f"""
-                                ⚠️ **{name}**
-                                - {message}
-                                - 🔢 الكود: {data}
-                                """)
+                                st.warning(
+                                    f"⚠️ **{name}**\n"
+                                    f"- {message}"
+                                )
                         annotated = draw_on_image(image)
                         st.image(
                             annotated,
-                            caption="الصورة مع الباركود المكتشف",
+                            caption="الباركود المكتشف",
                             use_column_width=True
                         )
                     else:
                         st.error("❌ لم يتم اكتشاف أي باركود")
-                        st.info("💡 تأكد من وضوح الصورة وأن الباركود مرئي بالكامل")
+                        st.info("💡 تأكد من وضوح الصورة")
 
-        # ── طريقة 2: كاميرا المتصفح ───────────────────
+        # ── كاميرا المتصفح ─────────────────────────────
         elif "كاميرا" in method:
-            col1, col2 = st.columns([1, 1])
+            col1, col2 = st.columns(2)
             with col1:
                 camera_image = st.camera_input("📷 التقط صورة الباركود")
                 if camera_image:
@@ -406,19 +358,16 @@ def main():
                                 data, students_dict
                             )
                             if success:
-                                st.success(f"""
-                                ✅ **تم تسجيل: {name}**
-                                - 🔢 الكود: {data}
-                                """)
+                                st.success(f"✅ **{name}** - {data}")
                                 st.balloons()
                             else:
                                 st.warning(f"⚠️ {name}: {message}")
                     else:
                         st.error("❌ لم يتم اكتشاف باركود")
 
-        # ── طريقة 3: إدخال يدوي ───────────────────────
+        # ── إدخال يدوي ────────────────────────────────
         elif "يدوي" in method:
-            col1, col2 = st.columns([1, 1])
+            col1, col2 = st.columns(2)
             with col1:
                 st.subheader("⌨️ الإدخال اليدوي")
                 with st.form("manual_form", clear_on_submit=True):
@@ -426,12 +375,11 @@ def main():
                         "أدخل رقم الباركود:",
                         placeholder="مثال: S001"
                     )
-                    # ✅ عرض اسم الطالب أثناء الكتابة
                     if manual_input.strip():
-                        preview_name = students_dict.get(
-                            manual_input.strip(), "غير موجود في القائمة"
+                        preview = students_dict.get(
+                            manual_input.strip(), "غير موجود في القائمة ⚠️"
                         )
-                        st.info(f"👤 الطالب: **{preview_name}**")
+                        st.info(f"👤 الطالب: **{preview}**")
                     submitted = st.form_submit_button(
                         "✅ تسجيل الحضور", use_container_width=True
                     )
@@ -445,49 +393,45 @@ def main():
                         else:
                             st.warning(f"⚠️ {name}: {message}")
 
-    # ══════════════════════════════════════════════════════════
-    # ✅ TAB 2: قائمة الطلاب (جديد)
-    # ══════════════════════════════════════════════════════════
+    # ══════════════════════════════════════════════════════
+    # TAB 2: قائمة الطلاب
+    # ══════════════════════════════════════════════════════
     with tab2:
         st.header("👥 قائمة الطلاب")
         if not students_dict:
             st.error("❌ لا توجد بيانات طلاب")
             st.markdown("""
             ### كيفية إضافة الطلاب:
-            1. افتح Excel وأنشئ جدول بعمودين:
+            1. افتح Excel وأنشئ جدولاً بعمودين:
                - عمود `barcode` ← رقم الباركود
                - عمود `name` ← اسم الطالب
             2. احفظ الملف بصيغة `.xlsx`
             3. ارفعه من الشريط الجانبي
             """)
-            # ✅ زر تحميل ملف نموذجي
-            sample_data = pd.DataFrame({
-                'barcode': ['S001', 'S002', 'S003', 'S004', 'S005'],
-                'name': ['أحمد محمد', 'فاطمة علي', 'محمد سالم', 'نورة خالد', 'عمر سعيد'],
-                'class': ['الصف الأول', 'الصف الأول', 'الصف الثاني', 'الصف الثاني', 'الصف الثالث']
+            # ملف نموذجي للتحميل
+            sample = pd.DataFrame({
+                'barcode': ['S001','S002','S003','S004','S005'],
+                'name' : [ 'أحمد محمد', 'فاطمة علي', 'محمد سالم', 'نورة خالد', 'عمر سعيد' ],
+                'class': [ 'الصف الأول', 'الصف الأول', 'الصف الثاني', 'الصف الثاني', 'الصف الثالث' ]
             })
             st.download_button(
                 label="⬇️ تحميل ملف نموذجي",
-                data=sample_data.to_csv(index=False).encode('utf-8-sig'),
+                data=sample.to_csv(index=False).encode('utf-8-sig'),
                 file_name="students_sample.csv",
                 mime='text/csv',
                 use_container_width=True
             )
         else:
-            # ✅ عرض جدول الطلاب
             st.success(f"✅ إجمالي الطلاب: **{len(students_dict)}**")
-            # تحويل القاموس إلى DataFrame للعرض
+            search_student = st.text_input(
+                "🔍 بحث عن طالب:",
+                placeholder="اكتب الاسم أو الرقم..."
+            )
             display_df = pd.DataFrame(
                 list(students_dict.items()),
                 columns=['رقم الباركود', 'اسم الطالب']
             )
             display_df.index = range(1, len(display_df) + 1)
-
-            # فلتر البحث
-            search_student = st.text_input(
-                "🔍 بحث عن طالب:",
-                placeholder="اكتب الاسم أو الرقم..."
-            )
             if search_student:
                 mask = (
                     display_df['اسم الطالب'].str.contains(
@@ -498,17 +442,14 @@ def main():
                     )
                 )
                 display_df = display_df[mask]
-
             st.dataframe(display_df, use_container_width=True, height=400)
-
-            # ✅ عرض الملف الخام إذا وجد
             if not students_df.empty:
                 with st.expander("📄 عرض بيانات الملف الكاملة"):
                     st.dataframe(students_df, use_container_width=True)
 
-    # ══════════════════════════════════════════════════════════
-    # TAB 3: سجل الحضور الكامل
-    # ══════════════════════════════════════════════════════════
+    # ══════════════════════════════════════════════════════
+    # TAB 3: سجل الحضور
+    # ══════════════════════════════════════════════════════
     with tab3:
         st.header("📊 سجل الحضور الكامل")
         if os.path.exists(ATTENDANCE_FILE):
@@ -517,11 +458,14 @@ def main():
                 col1, col2 = st.columns(2)
                 with col1:
                     search = st.text_input(
-                        "🔍 بحث بالاسم:", placeholder="اكتب الاسم..."
+                        "🔍 بحث بالاسم:",
+                        placeholder="اكتب الاسم..."
                     )
                 with col2:
-                    date_filter = st.date_input("📅 فلترة بالتاريخ:", value=None)
-
+                    date_filter = st.date_input(
+                        "📅 فلترة بالتاريخ:",
+                        value=None
+                    )
                 filtered_df = df.copy()
                 if search:
                     filtered_df = filtered_df[
@@ -537,7 +481,6 @@ def main():
                         filtered_df['date'] == date_filter
                     ]
                     filtered_df = filtered_df.drop(columns=['date'])
-
                 st.dataframe(
                     filtered_df,
                     use_container_width=True,
@@ -558,66 +501,46 @@ def main():
         else:
             st.warning("⚠️ ملف الحضور غير موجود")
 
-    # ══════════════════════════════════════════════════════════
+    # ══════════════════════════════════════════════════════
     # TAB 4: تقرير اليوم
-    # ══════════════════════════════════════════════════════════
+    # ══════════════════════════════════════════════════════
     with tab4:
-        st.header(f"📋 تقرير يوم {datetime.now().strftime('%Y-%m-%d')}")
+        st.header(f"📋 تقرير {datetime.now().strftime('%Y-%m-%d')}")
         today_names = get_attended_today()
+        total = len(students_dict)
+        present = len(today_names)
+        absent_count = total - present if total > 0 else 0
 
-        # ── بطاقات الإحصائيات ─────────────────────────
+        # بطاقات الإحصائيات
         col1, col2, col3 = st.columns(3)
-        with col1:
-            st.markdown(f"""
-            <div class='info-card'>
-                <h2 style='color:white; margin:0;'>{len(today_names)}</h2>
-                <p style='color:white; margin:0;'>✅ حاضر اليوم</p>
-            </div>
-            """, unsafe_allow_html=True)
-        with col2:
-            total = len(students_dict) if students_dict else 0
-            st.markdown(f"""
-            <div class='info-card'>
-                <h2 style='color:white; margin:0;'>{total}</h2>
-                <p style='color:white; margin:0;'>🎓 إجمالي الطلاب</p>
-            </div>
-            """, unsafe_allow_html=True)
-        with col3:
-            absent = total - len(today_names) if total > 0 else "—"
-            st.markdown(f"""
-            <div class='info-card'>
-                <h2 style='color:white; margin:0;'>{absent}</h2>
-                <p style='color:white; margin:0;'>❌ غائب</p>
-            </div>
-            """, unsafe_allow_html=True)
+        col1.metric("✅ حاضر اليوم", present)
+        col2.metric("🎓 إجمالي الطلاب", total)
+        col3.metric("❌ غائب", absent_count)
         st.markdown("---")
 
-        # ── قوائم الحاضرين والغائبين ──────────────────
         col1, col2 = st.columns(2)
+        # قائمة الحاضرين
         with col1:
-            st.subheader("✅ الحاضرون:")
+            st.subheader("✅ الحاضرون")
             if today_names:
                 for i, name in enumerate(sorted(today_names), 1):
-                    st.markdown(f"""
-                    <div style='background:#e8f5e9; padding:0.5rem 1rem; border-radius:8px; margin:0.3rem 0; border-right:4px solid #4caf50;'>
-                        {i}. {name}
-                    </div>
-                    """, unsafe_allow_html=True)
+                    st.markdown(
+                        f"<div class='present-card'>{i}. {name}</div>",
+                        unsafe_allow_html=True
+                    )
             else:
-                st.info("📭 لا يوجد حضور اليوم بعد")
+                st.info("📭 لا يوجد حضور بعد")
+        # قائمة الغائبين
         with col2:
-            st.subheader("❌ الغائبون:")
+            st.subheader("❌ الغائبون")
             if students_dict:
-                attended_names = set(today_names)
-                all_names = set(students_dict.values())
-                absent_names = all_names - attended_names
+                absent_names = set(students_dict.values()) - set(today_names)
                 if absent_names:
                     for i, name in enumerate(sorted(absent_names), 1):
-                        st.markdown(f"""
-                        <div style='background:#ffebee; padding:0.5rem 1rem; border-radius:8px; margin:0.3rem 0; border-right:4px solid #f44336;'>
-                            {i}. {name}
-                        </div>
-                        """, unsafe_allow_html=True)
+                        st.markdown(
+                            f"<div class='absent-card'>{i}. {name}</div>",
+                            unsafe_allow_html=True
+                        )
                 else:
                     st.success("🎉 جميع الطلاب حاضرون!")
             else:
