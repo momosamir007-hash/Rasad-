@@ -1,4 +1,3 @@
-# app.py - نسخة Streamlit كاملة مصححة
 import streamlit as st
 import pandas as pd
 import os
@@ -68,7 +67,14 @@ def get_attended_today():
     return set()
 
 def mark_attendance(identifier, students_dict):
-    name = students_dict.get(str(identifier).strip(), str(identifier).strip())
+    identifier_str = str(identifier).strip()
+    
+    # [تعديل هام] التحقق من أن الباركود ينتمي لقائمة الطلاب
+    if identifier_str not in students_dict:
+        return False, identifier_str, "باركود خارجي غير مسجل في قائمة الطلاب ❌"
+        
+    name = students_dict[identifier_str]
+    
     if identifier in st.session_state.scanned_session:
         return False, name, "مسجّل مسبقاً في هذه الجلسة ✋"
     if name in get_attended_today():
