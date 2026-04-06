@@ -1,6 +1,8 @@
-streamlit
-opencv-python-headless
-pyzbar
-pandas
-numpy
+
+streamlit 
+opencv-python-headless 
+numpy 
+pandas 
+pyzbar 
+Pillow 
 openpyxl
