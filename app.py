@@ -1,295 +1,353 @@
-import cv2 import numpy as np import urllib.request import urllib.error from pyzbar.pyzbar import decode from datetime import datetime import pandas as pd import os import time
+# app.py - نسخة Streamlit كاملة
+import streamlit as st
+import pandas as pd
+import os
+from datetime import datetime
+from pyzbar.pyzbar import decode
+from PIL import Image
+import numpy as np
+import cv2
 
 # ============================================================
-# ⚙️ الإعدادات الأساسية
+# ⚙️ الإعدادات
 # ============================================================
-# رابط كاميرا الهاتف عبر تطبيق IP Webcam
-CAMERA_URL = 'http://192.168.1.5:8080/shot.jpg'
-# اسم ملف الحضور
 ATTENDANCE_FILE = 'attendance.csv'
-# ملف بيانات الطلاب (اختياري)
 STUDENTS_FILE = 'students.xlsx'
-# وقت الانتظار بين المحاولات (بالثواني)
-RETRY_DELAY = 2
-
-# ============================================================
-# 📋 قائمة الأسماء المسجلة في الجلسة الحالية
-# ============================================================
-scanned_in_session = set()  # استخدام set بدلاً من list للأداء الأفضل
 
 # ============================================================
 # 🔧 دوال مساعدة
 # ============================================================
-def initialize_attendance_file():
-    """ إنشاء ملف الحضور إذا لم يكن موجوداً مع إضافة العناوين """
+def initialize_file():
+    """إنشاء ملف الحضور إن لم يكن موجوداً"""
     if not os.path.exists(ATTENDANCE_FILE):
         df = pd.DataFrame(columns=['الاسم/الرقم', 'التاريخ والوقت', 'الحالة'])
         df.to_csv(ATTENDANCE_FILE, index=False, encoding='utf-8-sig')
-        print(f"✅ تم إنشاء ملف الحضور: {ATTENDANCE_FILE}")
-    else:
-        print(f"📂 تم العثور على ملف الحضور: {ATTENDANCE_FILE}")
 
-def load_students_data():
-    """ تحميل بيانات الطلاب من ملف الإكسيل
-        يُرجع قاموساً: {رقم_الباركود: اسم_الطالب} """
-    students_dict = {}
+def load_students():
+    """تحميل بيانات الطلاب من Excel"""
     if os.path.exists(STUDENTS_FILE):
         try:
             df = pd.read_excel(STUDENTS_FILE)
-            # التأكد من وجود الأعمدة المطلوبة
-            # المتوقع: عمود 'barcode' وعمود 'name'
             if 'barcode' in df.columns and 'name' in df.columns:
-                for _, row in df.iterrows():
-                    students_dict[str(row['barcode'])] = str(row['name'])
-                print(f"✅ تم تحميل {len(students_dict)} طالب من قاعدة البيانات")
-            else:
-                print("⚠️ تنبيه: ملف الطلاب يجب أن يحتوي على أعمدة 'barcode' و 'name'")
+                return dict(zip(df['barcode'].astype(str), df['name'].astype(str)))
         except Exception as e:
-            print(f"❌ خطأ في قراءة ملف الطلاب: {e}")
-    else:
-        print(f"ℹ️ ملف الطلاب غير موجود - سيتم استخدام بيانات الباركود مباشرة")
-    return students_dict
+            st.warning(f"⚠️ خطأ في قراءة ملف الطلاب: {e}")
+    return {}
 
-def get_already_attended_today():
-    """ جلب قائمة من سجّلوا حضورهم اليوم من الملف """
-    attended_today = set()
+def get_attended_today():
+    """جلب من سجّل حضوره اليوم"""
     today = datetime.now().strftime('%Y-%m-%d')
     try:
         if os.path.exists(ATTENDANCE_FILE):
             df = pd.read_csv(ATTENDANCE_FILE, encoding='utf-8-sig')
             if not df.empty and 'التاريخ والوقت' in df.columns:
-                # فلترة سجلات اليوم فقط
-                df['date_only'] = pd.to_datetime(
+                df['date'] = pd.to_datetime(
                     df['التاريخ والوقت'], errors='coerce'
                 ).dt.strftime('%Y-%m-%d')
-                today_records = df[df['date_only'] == today]
-                attended_today = set(today_records['الاسم/الرقم'].tolist())
-    except Exception as e:
-        print(f"⚠️ خطأ في قراءة سجلات اليوم: {e}")
-    return attended_today
+                return set(df[df['date'] == today]['الاسم/الرقم'].tolist())
+    except Exception:
+        pass
+    return set()
 
 def mark_attendance(identifier, students_dict):
-    """ تسجيل الحضور في الملف
-        المعاملات:
-            identifier: رقم الباركود أو الـ QR
-            students_dict: قاموس بيانات الطلاب
-        يُرجع: tuple: (نجح_التسجيل, اسم_الشخص, الرسالة) """
-    # جلب الاسم من القاموس أو استخدام الرقم مباشرة
-    name = students_dict.get(identifier, identifier)
-    # التحقق من عدم التكرار في الجلسة الحالية
-    if identifier in scanned_in_session:
-        return False, name, "مسجّل مسبقاً في هذه الجلسة"
-    # التحقق من عدم التكرار في نفس اليوم
-    attended_today = get_already_attended_today()
-    if name in attended_today or identifier in attended_today:
-        scanned_in_session.add(identifier)  # إضافة للجلسة لتجنب التحقق المتكرر
-        return False, name, "مسجّل مسبقاً اليوم"
-    # تسجيل الحضور
+    """
+    تسجيل الحضور
+    يُرجع: (نجح, الاسم, الرسالة)
+    """
+    name = students_dict.get(str(identifier), str(identifier))
+    # التحقق من التكرار في الجلسة
+    if identifier in st.session_state.scanned_session:
+        return False, name, "مسجّل مسبقاً في هذه الجلسة ✋"
+    # التحقق من التكرار في اليوم
+    if name in get_attended_today():
+        st.session_state.scanned_session.add(identifier)
+        return False, name, "مسجّل مسبقاً اليوم 📅"
+    # الحفظ في الملف
     try:
-        now = datetime.now()
-        dt_string = now.strftime('%Y-%m-%d %H:%M:%S')
-        # إضافة السجل الجديد
-        new_record = pd.DataFrame({
+        dt_string = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        new_row = pd.DataFrame({
             'الاسم/الرقم': [name],
             'التاريخ والوقت': [dt_string],
             'الحالة': ['حاضر']
         })
-        # إضافة للملف بدون كتابة العناوين مجدداً
-        new_record.to_csv(
+        new_row.to_csv(
             ATTENDANCE_FILE,
-            mode='a',      # وضع الإضافة
-            header=False,  # بدون عناوين
+            mode='a',
+            header=False,
             index=False,
             encoding='utf-8-sig'
         )
-        # إضافة للجلسة الحالية
-        scanned_in_session.add(identifier)
-        return True, name, f"تم التسجيل بنجاح - {dt_string}"
+        st.session_state.scanned_session.add(identifier)
+        return True, name, f"✅ تم التسجيل - {dt_string}"
     except Exception as e:
-        return False, name, f"خطأ في التسجيل: {e}"
+        return False, name, f"❌ خطأ: {e}"
 
-def draw_barcode_info(img, barcode, name, success):
-    """ رسم معلومات الباركود على الصورة
-        المعاملات:
-            img: الصورة
-            barcode: كائن الباركود المكتشف
-            name: اسم/رقم الشخص
-            success: هل تم التسجيل بنجاح """
-    # اختيار لون المربع حسب حالة التسجيل
-    # أخضر = تسجيل ناجح، أصفر = مسجّل مسبقاً
-    color = (0, 255, 0) if success else (0, 255, 255)
-    # رسم المضلع حول الباركود
-    pts = np.array([barcode.polygon], np.int32)
-    pts = pts.reshape((-1, 1, 2))
-    cv2.polylines(img, [pts], True, color, 3)
-    # إضافة خلفية للنص لتحسين القراءة
-    rect = barcode.rect
-    text_x = rect[0]
-    text_y = rect[1] - 10
-    # قياس حجم النص
-    (text_width, text_height), _ = cv2.getTextSize(
-        name, cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2
-    )
-    # رسم خلفية النص
-    cv2.rectangle(
-        img,
-        (text_x - 5, text_y - text_height - 5),
-        (text_x + text_width + 5, text_y + 5),
-        color,
-        -1  # ملء المستطيل
-    )
-    # كتابة الاسم
-    cv2.putText(
-        img, name, (text_x, text_y),
-        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2
-    )
-    return img
+def scan_barcodes(image):
+    """
+    قراءة الباركود/QR من الصورة
+    يُرجع: قائمة من (البيانات, النوع)
+    """
+    img_array = np.array(image)
+    # تحويل RGB إلى BGR لـ OpenCV
+    img_bgr = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+    img_gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+    results = []
+    for barcode in decode(img_gray):
+        data = barcode.data.decode('utf-8')
+        results.append((data, barcode.type))
+    return results
 
-def draw_stats_panel(img, total_today):
-    """ إضافة لوحة إحصائيات في أعلى الشاشة """
-    panel_height = 60
-    overlay = img.copy()
-    # خلفية شبه شفافة
-    cv2.rectangle(overlay, (0, 0), (img.shape[1], panel_height), (50, 50, 50), -1)
-    cv2.addWeighted(overlay, 0.7, img, 0.3, 0, img)
-    # معلومات الوقت الحالي
-    current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    cv2.putText(
-        img, f"Time: {current_time}", (10, 25),
-        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1
-    )
-    # عدد الحاضرين
-    session_count = len(scanned_in_session)
-    cv2.putText(
-        img, f"Session: {session_count} | Today: {total_today}", (10, 50),
-        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 150), 1
-    )
-    return img
-
-def capture_frame(url, timeout=5):
-    """ التقاط إطار من كاميرا الهاتف
-        يُرجع: الصورة أو None في حالة الخطأ """
-    try:
-        req = urllib.request.urlopen(url, timeout=timeout)
-        img_array = np.array(bytearray(req.read()), dtype=np.uint8)
-        img = cv2.imdecode(img_array, -1)
-        return img
-    except urllib.error.URLError:
-        return None
-    except Exception:
-        return None
+def draw_on_image(image, barcodes_info):
+    """رسم مستطيلات حول الباركود في الصورة"""
+    img_array = np.array(image)
+    img_bgr = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+    for barcode in decode(img_bgr):
+        pts = np.array([barcode.polygon], np.int32).reshape((-1, 1, 2))
+        cv2.polylines(img_bgr, [pts], True, (0, 255, 0), 3)
+        rect = barcode.rect
+        cv2.putText(
+            img_bgr,
+            barcode.data.decode('utf-8'),
+            (rect[0], rect[1] - 10),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.8,
+            (0, 255, 0),
+            2
+        )
+    return cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
 
 # ============================================================
-# 🚀 الدالة الرئيسية
+# 🚀 واجهة Streamlit
 # ============================================================
 def main():
-    print("=" * 50)
-    print(" 📷 نظام تسجيل الحضور بالباركود")
-    print("=" * 50)
+    st.set_page_config(
+        page_title="نظام الحضور",
+        page_icon="🎓",
+        layout="wide"
+    )
 
-    # تهيئة الملفات
-    initialize_attendance_file()
-    students_dict = load_students_data()
+    # ── CSS للغة العربية ──────────────────────────────────
+    st.markdown("""
+    <style>
+    body { direction: rtl; }
+    .main { direction: rtl; text-align: right; }
+    .stAlert { direction: rtl; }
+    h1, h2, h3 { text-align: center; }
+    </style>
+    """, unsafe_allow_html=True)
 
-    print(f"\n📡 محاولة الاتصال بالكاميرا: {CAMERA_URL}")
-    print("⌨️ اضغط 'q' للخروج | 's' لحفظ لقطة شاشة\n")
+    # ── تهيئة حالة الجلسة ─────────────────────────────────
+    if 'scanned_session' not in st.session_state:
+        st.session_state.scanned_session = set()
 
-    # متغيرات الحالة
-    connection_errors = 0
-    max_errors = 10
-    last_message = ""
-    message_timer = 0
+    # ── تهيئة الملفات ─────────────────────────────────────
+    initialize_file()
+    students_dict = load_students()
 
-    while True:
-        # التقاط الإطار
-        img = capture_frame(CAMERA_URL)
+    # ── العنوان ───────────────────────────────────────────
+    st.title("🎓 نظام تسجيل الحضور بالباركود")
+    st.markdown("---")
 
-        # التعامل مع خطأ الاتصال
-        if img is None:
-            connection_errors += 1
-            print(f"⚠️ خطأ في الاتصال ({connection_errors}/{max_errors})")
-            if connection_errors >= max_errors:
-                print("❌ تعذر الاتصال بالكاميرا. تحقق من:")
-                print(" 1. أن الهاتف والحاسوب على نفس الشبكة")
-                print(" 2. أن تطبيق IP Webcam يعمل")
-                print(f" 3. صحة الرابط: {CAMERA_URL}")
-                break
-            time.sleep(RETRY_DELAY)
-            continue
+    # ============================================================
+    # 📌 Sidebar - الشريط الجانبي
+    # ============================================================
+    with st.sidebar:
+        st.header("⚙️ الإعدادات")
+        st.info(f"""
+        📊 **إحصائيات سريعة**
+        - 👥 الجلسة الحالية: **{len(st.session_state.scanned_session)}**
+        - 📅 اليوم: **{len(get_attended_today())}**
+        """)
+        st.markdown("---")
 
-        # إعادة تعيين عداد الأخطاء عند النجاح
-        connection_errors = 0
+        # رفع ملف الطلاب
+        st.subheader("📤 رفع بيانات الطلاب")
+        uploaded_students = st.file_uploader(
+            "ملف Excel (barcode, name)",
+            type=['xlsx', 'xls'],
+            key='students_upload'
+        )
+        if uploaded_students:
+            with open(STUDENTS_FILE, 'wb') as f:
+                f.write(uploaded_students.getbuffer())
+            st.success("✅ تم رفع ملف الطلاب")
+            st.rerun()
 
-        # جلب إحصائيات اليوم
-        total_today = len(get_already_attended_today())
+        st.markdown("---")
 
-        # ============================================================
-        # 🔍 قراءة الباركود
-        # ============================================================
-        detected_barcodes = decode(img)
+        # إعادة تعيين الجلسة
+        if st.button("🔄 إعادة تعيين الجلسة", use_container_width=True):
+            st.session_state.scanned_session = set()
+            st.success("✅ تم إعادة التعيين")
 
-        for barcode in detected_barcodes:
-            # قراءة البيانات
-            barcode_data = barcode.data.decode('utf-8')
-            barcode_type = barcode.type
-            print(f"🔍 تم اكتشاف {barcode_type}: {barcode_data}")
+    # ============================================================
+    # 📑 التبويبات
+    # ============================================================
+    tab1, tab2, tab3 = st.tabs([
+        "📷 تسجيل الحضور",
+        "📊 سجل الحضور",
+        "📋 تقرير اليوم"
+    ])
 
-            # تسجيل الحضور
-            success, name, message = mark_attendance(barcode_data, students_dict)
+    # ══════════════════════════════════════════════════════
+    # TAB 1: تسجيل الحضور
+    # ══════════════════════════════════════════════════════
+    with tab1:
+        st.header("📷 تسجيل الحضور")
+        col1, col2 = st.columns([1, 1])
 
-            # عرض رسالة في الطرفية
-            if success:
-                print(f" ✅ {message}")
-            else:
-                print(f" ℹ️ {name}: {message}")
-
-            # تخزين آخر رسالة للعرض على الشاشة
-            last_message = f"{'✓' if success else '!'} {name}"
-            message_timer = 50  # عرض الرسالة لـ 50 إطار
-
-            # رسم معلومات الباركود
-            img = draw_barcode_info(img, barcode, name, success)
-
-        # إضافة لوحة الإحصائيات
-        img = draw_stats_panel(img, total_today)
-
-        # عرض آخر رسالة
-        if message_timer > 0:
-            color = (0, 255, 0) if '✓' in last_message else (0, 255, 255)
-            cv2.putText(
-                img, last_message,
-                (img.shape[1] - 300, img.shape[0] - 20),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2
+        with col1:
+            st.subheader("📸 رفع صورة")
+            method = st.radio(
+                "اختر طريقة الإدخال:",
+                ["📁 رفع صورة", "📷 كاميرا المتصفح", "⌨️ إدخال يدوي"],
+                horizontal=True
             )
-            message_timer -= 1
 
-        # عرض الصورة
-        cv2.imshow('🎓 Attendance System', img)
+        # ── طريقة 1: رفع صورة ─────────────────────────────
+        if "رفع صورة" in method:
+            uploaded_file = st.file_uploader(
+                "ارفع صورة تحتوي على باركود أو QR كود",
+                type=['jpg', 'jpeg', 'png', 'bmp'],
+                key='barcode_image'
+            )
+            if uploaded_file:
+                image = Image.open(uploaded_file)
+                with col1:
+                    st.image(image, caption="الصورة المرفوعة", use_column_width=True)
 
-        # معالجة المفاتيح
-        key = cv2.waitKey(1) & 0xFF
-        if key == ord('q'):
-            print("\n👋 تم إنهاء البرنامج")
-            break
-        elif key == ord('s'):
-            # حفظ لقطة شاشة
-            screenshot_name = f"screenshot_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
-            cv2.imwrite(screenshot_name, img)
-            print(f"📸 تم حفظ لقطة الشاشة: {screenshot_name}")
+                # فحص الباركود
+                barcodes = scan_barcodes(image)
 
-    cv2.destroyAllWindows()
+                with col2:
+                    if barcodes:
+                        st.success(f"🔍 تم اكتشاف {len(barcodes)} باركود")
+                        for data, btype in barcodes:
+                            success, name, message = mark_attendance(data, students_dict)
+                            if success:
+                                st.success(f"""
+                                ✅ **تم تسجيل الحضور**
+                                - 👤 الاسم: **{name}**
+                                - 🔖 النوع: {btype}
+                                - ⏰ {message}
+                                """)
+                                st.balloons()
+                            else:
+                                st.warning(f"""
+                                ⚠️ **{name}**
+                                - {message}
+                                """)
+                        # عرض الصورة مع التوضيحات
+                        annotated = draw_on_image(image, barcodes)
+                        st.image(annotated, caption="الصورة مع الباركود", use_column_width=True)
+                    else:
+                        st.error("❌ لم يتم اكتشاف أي باركود في الصورة")
+                        st.info("💡 تأكد من وضوح الصورة وأن الباركود مرئي بالكامل")
 
-    # ============================================================
-    # 📊 ملخص الجلسة
-    # ============================================================
-    print("\n" + "=" * 50)
-    print("📊 ملخص الجلسة:")
-    print(f" • عدد المسجلين في هذه الجلسة: {len(scanned_in_session)}")
-    print(f" • الأشخاص: {', '.join(scanned_in_session) if scanned_in_session else 'لا أحد'}")
-    print("=" * 50)
+        # ── طريقة 2: كاميرا المتصفح ───────────────────────
+        elif "كاميرا" in method:
+            camera_image = st.camera_input("📷 التقط صورة الباركود")
+            if camera_image:
+                image = Image.open(camera_image)
+                barcodes = scan_barcodes(image)
+                if barcodes:
+                    for data, btype in barcodes:
+                        success, name, message = mark_attendance(data, students_dict)
+                        if success:
+                            st.success(f"✅ تم تسجيل: **{name}**")
+                            st.balloons()
+                        else:
+                            st.warning(f"⚠️ {name}: {message}")
+                else:
+                    st.error("❌ لم يتم اكتشاف باركود - حاول مرة أخرى")
+
+        # ── طريقة 3: إدخال يدوي ───────────────────────────
+        elif "يدوي" in method:
+            with st.form("manual_form"):
+                manual_input = st.text_input(
+                    "أدخل رقم الطالب أو الاسم:",
+                    placeholder="مثال: 12345"
+                )
+                submitted = st.form_submit_button("✅ تسجيل", use_container_width=True)
+                if submitted and manual_input.strip():
+                    success, name, message = mark_attendance(
+                        manual_input.strip(), students_dict
+                    )
+                    if success:
+                        st.success(f"✅ تم تسجيل: **{name}**")
+                        st.balloons()
+                    else:
+                        st.warning(f"⚠️ {name}: {message}")
+
+    # ══════════════════════════════════════════════════════
+    # TAB 2: سجل الحضور الكامل
+    # ══════════════════════════════════════════════════════
+    with tab2:
+        st.header("📊 سجل الحضور الكامل")
+        if os.path.exists(ATTENDANCE_FILE):
+            df = pd.read_csv(ATTENDANCE_FILE, encoding='utf-8-sig')
+            if not df.empty:
+                # فلاتر البحث
+                col1, col2 = st.columns(2)
+                with col1:
+                    search = st.text_input("🔍 بحث بالاسم:", placeholder="اكتب الاسم...")
+                with col2:
+                    date_filter = st.date_input("📅 فلترة بالتاريخ:", value=None)
+
+                # تطبيق الفلاتر
+                filtered_df = df.copy()
+                if search:
+                    filtered_df = filtered_df[
+                        filtered_df['الاسم/الرقم'].str.contains(search, na=False)
+                    ]
+                if date_filter:
+                    filtered_df['date'] = pd.to_datetime(
+                        filtered_df['التاريخ والوقت'], errors='coerce'
+                    ).dt.date
+                    filtered_df = filtered_df[filtered_df['date'] == date_filter]
+                    filtered_df = filtered_df.drop(columns=['date'])
+
+                st.dataframe(
+                    filtered_df,
+                    use_container_width=True,
+                    height=400
+                )
+                st.info(f"📌 إجمالي السجلات: **{len(filtered_df)}**")
+
+                # تحميل الملف
+                st.download_button(
+                    label="⬇️ تحميل ملف CSV",
+                    data=filtered_df.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig'),
+                    file_name=f"attendance_{datetime.now().strftime('%Y%m%d')}.csv",
+                    mime='text/csv',
+                    use_container_width=True
+                )
+            else:
+                st.info("📭 لا توجد سجلات بعد")
+        else:
+            st.warning("⚠️ ملف الحضور غير موجود")
+
+    # ══════════════════════════════════════════════════════
+    # TAB 3: تقرير اليوم
+    # ══════════════════════════════════════════════════════
+    with tab3:
+        st.header(f"📋 تقرير يوم {datetime.now().strftime('%Y-%m-%d')}")
+        today_names = get_attended_today()
+
+        col1, col2, col3 = st.columns(3)
+        col1.metric("✅ حاضر اليوم", len(today_names))
+        col2.metric("🎓 إجمالي الطلاب", len(students_dict) if students_dict else "—")
+        col3.metric("📌 الجلسة الحالية", len(st.session_state.scanned_session))
+
+        if today_names:
+            st.subheader("👥 الحاضرون اليوم:")
+            for i, name in enumerate(sorted(today_names), 1):
+                st.write(f"{i}. {name}")
+        else:
+            st.info("📭 لا يوجد تسجيلات اليوم بعد")
 
 # ============================================================
-# ▶️ نقطة البداية
+# ▶️ تشغيل التطبيق
 # ============================================================
 if __name__ == "__main__":
     main()
