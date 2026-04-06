@@ -8,92 +8,176 @@ import pandas as pd
 import os
 
 # ==========================================
-# 1. إصلاح مشكلة الشريط الجانبي (كما طلبت)
+# التعديل 1: إصلاح الشريط الجانبي واللغة العربية
 # ==========================================
-st.set_page_config(layout="wide", page_title="نظام رَصْد")
+st.set_page_config(page_title="نظام رَصْد للحضور", layout="wide", page_icon="🎓")
+
 st.markdown("""
 <style>
-/* إجبار الشريط الجانبي على البقاء في اليسار وتجنب الإغلاق الخاطئ */
-[data-testid="stSidebar"] { direction: ltr !important; }
+/* إجبار الشريط الجانبي على البقاء في اليسار وتجنب الإغلاق في المنتصف */
+[data-testid="stSidebar"] {
+    direction: ltr !important; 
+}
 /* جعل النصوص داخل الشريط الجانبي تتجه من اليمين لليسار */
-[data-testid="stSidebar"] > div:first-child { direction: rtl !important; }
-/* محاذاة باقي نصوص التطبيق لليمين */
-h1, h2, h3, h4, h5, h6, p, span, div, label { text-align: right !important; }
+[data-testid="stSidebar"] > div:first-child {
+    direction: rtl !important;
+}
+/* محاذاة كل النصوص لليمين */
+h1, h2, h3, h4, h5, h6, p, span, div, label {
+    text-align: right !important;
+}
+/* جعل الجداول تتجه من اليمين لليسار */
+[data-testid="stDataFrame"] {
+    direction: rtl !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. إصلاح مشكلة غياب البيانات (قراءة العدد)
+# الملفات الأساسية
 # ==========================================
-if os.path.exists('students.csv'):
-    # استخدام ترميز utf-8 لقراءة الملف العربي بشكل صحيح
-    df_students = pd.read_csv('students.csv', encoding='utf-8')
-    total_students = len(df_students)
-else:
-    total_students = 0
-
-# --- واجهة Streamlit (الشريط الجانبي) ---
-st.sidebar.title("📊 الإحصائيات")
-st.sidebar.metric(label="إجمالي الطلاب", value=total_students)
-st.sidebar.markdown("---")
-# الزر الذي سيعوض while True
-run = st.sidebar.checkbox('تشغيل الكاميرا 📷')
-
-# --- الشاشة الرئيسية ---
-st.title('نظام رَصْد للحضور')
-FRAME_WINDOW = st.image([])
-
+STUDENTS_FILE = 'students.csv'
+ATTENDANCE_FILE = 'attendance.csv'
 
 # ==========================================
-# الكود القديم الخاص بك (بنفس الهيكلية تماماً)
+# التعديل 2: قراءة البيانات بشكل صحيح (utf-8)
 # ==========================================
-url = 'http://192.168.1.5:8080/shot.jpg'
+@st.cache_data(ttl=60)
+def load_students_data():
+    if os.path.exists(STUDENTS_FILE):
+        try:
+            # إضافة encoding='utf-8' ليقرأ الأسماء العربية بدون أخطاء
+            df = pd.read_csv(STUDENTS_FILE, encoding='utf-8')
+            students_dict = {}
+            if 'ID' in df.columns and 'Name' in df.columns:
+                for _, row in df.iterrows():
+                    students_dict[str(row['ID']).strip()] = str(row['Name']).strip()
+            return df, students_dict
+        except Exception as e:
+            st.error(f"خطأ في قراءة ملف الطلاب: {e}")
+            return pd.DataFrame(), {}
+    else:
+        return pd.DataFrame(), {}
 
-scanned_names = []
+def init_attendance_file():
+    if not os.path.exists(ATTENDANCE_FILE):
+        df = pd.DataFrame(columns=['ID', 'Name', 'Time', 'Date'])
+        df.to_csv(ATTENDANCE_FILE, index=False, encoding='utf-8-sig')
 
-def mark_attendance(name):
-    # استخدام a+ لإنشاء الملف إذا لم يكن موجوداً
-    with open('attendance.csv', 'a+') as f:
-        f.seek(0)
-        myDataList = f.readlines()
-        nameList = [line.split(',')[0] for line in myDataList]
-        
-        # التأكد من عدم تسجيل نفس الشخص أكثر من مرة في نفس اليوم/الجلسة
-        if name not in nameList and name not in scanned_names:
-            now = datetime.now()
-            dtString = now.strftime('%Y-%m-%d %H:%M:%S')
-            f.writelines(f'\n{name},{dtString}')
-            scanned_names.append(name)
-            # عرض رسالة النجاح على واجهة الويب بدلاً من شاشة الأوامر
-            st.success(f"تم تسجيل حضور: {name}")
-
-# تم استبدال while True بـ while run لتعمل مع زر تشغيل الكاميرا
-while run:
+def get_attended_today():
+    if not os.path.exists(ATTENDANCE_FILE):
+        return set()
     try:
-        # جلب الصورة من كاميرا الهاتف
-        imgResp = urllib.request.urlopen(url)
-        imgNp = np.array(bytearray(imgResp.read()), dtype=np.uint8)
-        img = cv2.imdecode(imgNp, -1)
-        
-        # قراءة الباركود/QR كود من الصورة
-        for barcode in decode(img):
-            myData = barcode.data.decode('utf-8')
+        df = pd.read_csv(ATTENDANCE_FILE, encoding='utf-8-sig')
+        if df.empty: 
+            return set()
+        today = datetime.now().strftime('%Y-%m-%d')
+        today_records = df[df['Date'] == today]
+        return set(today_records['ID'].astype(str).tolist())
+    except:
+        return set()
+
+def mark_attendance(student_id, student_name):
+    now = datetime.now()
+    time_str = now.strftime('%H:%M:%S')
+    date_str = now.strftime('%Y-%m-%d')
+    new_record = pd.DataFrame({'ID': [student_id], 'Name': [student_name], 'Time': [time_str], 'Date': [date_str]})
+    new_record.to_csv(ATTENDANCE_FILE, mode='a', header=False, index=False, encoding='utf-8-sig')
+
+# ==========================================
+# تهيئة البيانات وبناء الواجهة
+# ==========================================
+init_attendance_file()
+df_students, students_dict = load_students_data()
+
+# الإحصائيات التي كانت تظهر لك 0 أصبحت الآن تقرأ من الملف الصحيح
+total_students = len(df_students) if not df_students.empty else 0
+attended_today_set = get_attended_today()
+total_attended = len(attended_today_set)
+total_absent = total_students - total_attended if total_students > 0 else 0
+
+st.title("🎓 نظام رَصْد - تسجيل الحضور والغياب")
+
+# --- الشريط الجانبي ---
+st.sidebar.header("⚙️ إعدادات الكاميرا")
+camera_url = st.sidebar.text_input("رابط الكاميرا:", value="http://192.168.1.5:8080/shot.jpg")
+run = st.sidebar.checkbox('تشغيل الكاميرا لبدء المسح 📷')
+
+st.sidebar.markdown("---")
+st.sidebar.header("📊 إحصائيات اليوم")
+st.sidebar.metric(label="إجمالي الطلاب المسجلين", value=total_students)
+st.sidebar.metric(label="🟢 عدد الحاضرين", value=total_attended)
+st.sidebar.metric(label="🔴 عدد الغائبين", value=total_absent)
+
+# --- تقسيم الشاشة ---
+col1, col2 = st.columns([2, 1])
+
+with col1:
+    st.subheader("📷 شاشة المسح الحي")
+    frame_window = st.image([])
+    status_text = st.empty()
+
+with col2:
+    st.subheader("📝 آخر من سجلوا الحضور")
+    records_placeholder = st.empty()
+    
+    def update_records_display():
+        if os.path.exists(ATTENDANCE_FILE):
+            try:
+                df_att = pd.read_csv(ATTENDANCE_FILE, encoding='utf-8-sig')
+                today = datetime.now().strftime('%Y-%m-%d')
+                today_att = df_att[df_att['Date'] == today]
+                if not today_att.empty:
+                    display_df = today_att.tail(10)[['Name', 'Time']].iloc[::-1]
+                    display_df.columns = ['الاسم', 'وقت الحضور']
+                    records_placeholder.dataframe(display_df, use_container_width=True, hide_index=True)
+                else:
+                    records_placeholder.info("لم يسجل أحد حضوره اليوم بعد.")
+            except:
+                pass
+    
+    update_records_display()
+
+# ==========================================
+# تشغيل الكاميرا وقراءة الباركود
+# ==========================================
+if run:
+    status_text.info("⏳ جاري الاتصال بالكاميرا...")
+    while run:
+        try:
+            imgResp = urllib.request.urlopen(camera_url, timeout=5)
+            imgNp = np.array(bytearray(imgResp.read()), dtype=np.uint8)
+            img = cv2.imdecode(imgNp, -1)
             
-            mark_attendance(myData)
+            for barcode in decode(img):
+                student_id = barcode.data.decode('utf-8').strip()
+                
+                # رسم المربع
+                pts = np.array([barcode.polygon], np.int32)
+                pts = pts.reshape((-1, 1, 2))
+                cv2.polylines(img, [pts], True, (0, 255, 0), 3)
+                
+                # التحقق والتسجيل
+                if student_id not in attended_today_set:
+                    # جلب اسم الطالب من القاموس
+                    student_name = students_dict.get(student_id, student_id)
+                    mark_attendance(student_id, student_name)
+                    attended_today_set.add(student_id)
+                    
+                    status_text.success(f"✅ تم تسجيل حضور: {student_name}")
+                    update_records_display()
+                else:
+                    student_name = students_dict.get(student_id, student_id)
+                    status_text.warning(f"⚠️ {student_name} مسجل مسبقاً اليوم!")
+                    
+            # عرض الصورة في المتصفح
+            img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            frame_window.image(img_rgb)
             
-            # رسم مربع حول الباركود في الشاشة
-            pts = np.array([barcode.polygon], np.int32)
-            pts = pts.reshape((-1, 1, 2))
-            cv2.polylines(img, [pts], True, (0, 255, 0), 5)
-            
-            # عرض البيانات على الشاشة
-            pts2 = barcode.rect
-            cv2.putText(img, myData, (pts2[0], pts2[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 0, 255), 2)
-            
-        # تم استبدال دوال النافذة (cv2.imshow) بدالة Streamlit لعرض الصورة في المتصفح
-        img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        FRAME_WINDOW.image(img_rgb)
-        
-    except Exception as e:
-        st.error(f"حدث خطأ في الاتصال بالكاميرا: {e}")
-        break
+        except Exception as e:
+            status_text.error(f"❌ حدث خطأ في الاتصال بالكاميرا: {e}")
+            break
+else:
+    status_text.info("الكاميرا متوقفة. قم بتفعيلها من الشريط الجانبي لبدء تسجيل الحضور.")
+    black_img = np.zeros((480, 640, 3), dtype=np.uint8)
+    frame_window.image(black_img)
