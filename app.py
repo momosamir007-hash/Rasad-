@@ -1,7 +1,13 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime,date
-from core.database import init_db,query
+from core.database import (
+    init_db,
+    query,
+    purge_attendance,
+    purge_students_and_attendance,
+    reset_all_data
+)
 from services.app_service import *
 from components.ui import css,hero
 st.set_page_config(page_title='رَصْد | منصة الحضور الذكية',page_icon='🎓',layout='wide',initial_sidebar_state='expanded')
