@@ -101,4 +101,35 @@ elif p=='⚙️ الإعدادات':
   late=st.text_input('وقت اعتبار الطالب متأخرًا',get_setting('late_time','08:15')); provider=st.selectbox('مزود الذكاء الاصطناعي المستقبلي',[get_setting('ai_provider','محلي'),'محلي','OpenRouter','Mistral']); model=st.text_input('النموذج الافتراضي',get_setting('ai_model',''))
   save=st.form_submit_button('💾 حفظ الإعدادات')
   if save:set_setting('late_time',late);set_setting('ai_provider',provider);set_setting('ai_model',model);st.success('تم حفظ الإعدادات')
+ st.divider()
+ st.subheader('🧹 مركز إدارة البيانات')
+ st.warning('⚠️ استخدم هذه الخيارات بحذر. الحذف لا يمكن التراجع عنه.')
+ r1,r2,r3=st.columns(3)
+ with r1:
+  st.caption('يحذف سجلات الحضور فقط ويُبقي الطلاب والإعدادات.')
+  if st.button('🗑️ مسح سجل الحضور',use_container_width=True):
+   st.session_state.confirm_action='attendance'
+ with r2:
+  st.caption('يحذف جميع الطلاب وسجلات الحضور المرتبطة بهم.')
+  if st.button('👥🗑️ حذف الطلاب والحضور',use_container_width=True):
+   st.session_state.confirm_action='students'
+ with r3:
+  st.caption('يعيد النظام إلى حالة فارغة تمامًا.')
+  if st.button('🔥 إعادة ضبط النظام بالكامل',use_container_width=True):
+   st.session_state.confirm_action='all'
+ action=st.session_state.get('confirm_action')
+ if action:
+  labels={'attendance':'مسح سجل الحضور فقط','students':'حذف جميع الطلاب وسجلات الحضور','all':'إعادة ضبط النظام بالكامل'}
+  st.error('تأكيد العملية: '+labels[action])
+  phrase=st.text_input('اكتب كلمة تأكيد الحذف: حذف البيانات',key='confirm_phrase')
+  c1,c2=st.columns(2)
+  if c1.button('✅ تأكيد الحذف',type='primary',use_container_width=True):
+   if phrase.strip()=='حذف البيانات':
+    if action=='attendance': purge_attendance(); msg='تم مسح سجل الحضور.'
+    elif action=='students': purge_students_and_attendance(); msg='تم حذف الطلاب وسجلات الحضور.'
+    else: reset_all_data(); msg='تمت إعادة ضبط النظام بالكامل.'
+    st.session_state.pop('confirm_action',None); st.success(msg); st.rerun()
+   else: st.error('عبارة التأكيد غير صحيحة.')
+  if c2.button('إلغاء',use_container_width=True):
+   st.session_state.pop('confirm_action',None); st.rerun()
  st.divider();st.subheader('🛠️ سجل العمليات'); au=query('SELECT action,details,created_at FROM audit ORDER BY id DESC LIMIT 30');st.dataframe(pd.DataFrame([dict(x) for x in au]),hide_index=True,use_container_width=True)
