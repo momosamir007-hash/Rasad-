@@ -16,3 +16,15 @@ def execute(sql,params=()):
  c=conn(); cur=c.execute(sql,params); c.commit(); n=cur.rowcount; c.close(); return n
 def scalar(sql,params=(),default=0):
  r=query(sql,params); return r[0][0] if r else default
+
+def purge_attendance():
+ c=conn(); c.execute('DELETE FROM attendance'); c.execute('DELETE FROM audit'); c.commit(); c.close(); return True
+
+def purge_students_and_attendance():
+ c=conn(); c.execute('DELETE FROM attendance'); c.execute('DELETE FROM students'); c.execute('DELETE FROM audit'); c.commit(); c.close(); return True
+
+def reset_all_data():
+ c=conn();
+ for table in ('attendance','students','settings','audit'):
+  c.execute(f'DELETE FROM {table}')
+ c.commit(); c.close(); return True
